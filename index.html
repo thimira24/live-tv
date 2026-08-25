@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IPTV Player</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<style>
+  :root {
+    --bg:#0c0e13; --bg-elev:#141821; --bg-elev2:#1d232e; --border:#2a313d;
+    --text:#e7ecf3; --dim:#8b95a5; --accent:#4f8cff; --accent-dim:#25324a;
+    --ok:#2ecc71; --radius:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--text);display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+  header{display:flex;align-items:center;gap:14px;padding:11px 16px;background:var(--bg-elev);
+    border-bottom:1px solid var(--border);flex-shrink:0}
+  .logo{font-weight:800;font-size:17px;letter-spacing:-.3px;white-space:nowrap}
+  .logo .dot{color:var(--accent)}
+  .search{flex:1;max-width:560px;position:relative}
+  .search input{width:100%;padding:10px 14px 10px 38px;border-radius:999px;border:1px solid var(--border);
+    background:var(--bg);color:var(--text);font-size:14px;outline:none}
+  .search input:focus{border-color:var(--accent)}
+  .search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);opacity:.5}
+  .count{color:var(--dim);font-size:13px;white-space:nowrap}
+  .seg{display:inline-flex;height:38px;border:1px solid var(--border);border-radius:999px;overflow:hidden;flex-shrink:0}
+  .seg button{background:var(--bg-elev2);border:none;color:var(--dim);padding:0 13px;font-size:12.5px;cursor:pointer;white-space:nowrap}
+  .seg button+button{border-left:1px solid var(--border)}
+  .seg button:hover:not(.on){color:var(--text)}
+  .seg button.on{background:var(--accent);color:#fff}
+  .gear{background:var(--bg-elev2);border:1px solid var(--border);color:var(--text);width:38px;height:38px;
+    border-radius:10px;cursor:pointer;font-size:16px;flex-shrink:0}
+  .gear:hover{border-color:var(--accent)}
+  .gear.active{color:var(--accent);border-color:var(--accent)}
+
+  .body{display:flex;flex:1;min-height:0}
+  aside{width:250px;flex-shrink:0;background:var(--bg-elev);border-right:1px solid var(--border);overflow-y:auto;padding:8px}
+  .side-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);padding:12px 10px 4px;
+    display:flex;justify-content:space-between;align-items:center}
+  .row-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;
+    cursor:pointer;font-size:13.5px;user-select:none}
+  .row-item:hover{background:var(--bg-elev2)}
+  .row-item.active{background:var(--accent);color:#fff}
+  .row-item .n{font-size:11.5px;color:var(--dim)}
+  .row-item.active .n{color:rgba(255,255,255,.85)}
+  .row-item .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  main{flex:1;overflow-y:auto;padding:16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+  .card{background:var(--bg-elev);border:1px solid var(--border);border-radius:var(--radius);padding:11px;cursor:pointer;
+    transition:transform .12s,border-color .12s;display:flex;flex-direction:column;align-items:center;gap:9px;text-align:center;position:relative}
+  .card:hover{transform:translateY(-3px);border-color:var(--accent)}
+  .card.playing{border-color:var(--ok)}
+  .card.offline{opacity:.4}
+  .card.offline:hover{opacity:.85}
+  .logo-box{width:100%;aspect-ratio:16/10;background:var(--bg);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .logo-box img{max-width:84%;max-height:84%;object-fit:contain}
+  .logo-box .ph{font-size:20px;font-weight:700;color:var(--dim)}
+  .card .name{font-size:12.5px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card .meta{position:absolute;top:7px;left:7px;display:flex;gap:4px}
+  .tag{background:rgba(0,0,0,.55);color:#fff;font-size:9.5px;font-weight:600;padding:2px 6px;border-radius:999px}
+  .card .badge{position:absolute;top:7px;right:7px;background:var(--accent-dim);color:#cfe0ff;font-size:9.5px;font-weight:600;
+    padding:2px 7px;border-radius:999px;text-transform:uppercase}
+  .empty{color:var(--dim);text-align:center;margin-top:64px;line-height:1.6}
+
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.96);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:14px;z-index:100}
+  .overlay.show{display:flex}
+  /* as wide as the viewport allows while keeping the 16:9 video fully on-screen */
+  .player{width:min(97vw, calc((100vh - 64px) * 16 / 9));background:var(--bg-elev);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.6)}
+  .player-head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .player-head .title{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .player-head .sub{font-size:12px;color:var(--dim)}
+  .pnav{margin-left:auto;display:flex;gap:8px;align-items:center;flex-shrink:0}
+  .pbtn{background:var(--bg-elev2);border:none;color:var(--text);width:36px;height:32px;border-radius:8px;cursor:pointer;font-size:17px;line-height:1}
+  .pbtn:hover{background:var(--accent);color:#fff}
+  .close{background:var(--bg-elev2);border:none;color:var(--text);width:34px;height:32px;border-radius:8px;cursor:pointer;font-size:15px}
+  .close:hover{background:var(--accent);color:#fff}
+  .video-wrap{position:relative;background:#000;aspect-ratio:16/9}
+  /* true fullscreen fills the screen edge-to-edge */
+  .player:fullscreen{width:100vw;height:100vh;border-radius:0;border:none;display:flex;flex-direction:column}
+  .player:fullscreen .video-wrap{flex:1;aspect-ratio:auto;min-height:0}
+  video{width:100%;height:100%;display:block;background:#000}
+  .status{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;background:rgba(0,0,0,.5)}
+  .status.hidden{display:none}
+  .spinner{width:38px;height:38px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:var(--accent);animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .status .msg{font-size:14px;max-width:460px;line-height:1.5}
+  .status .sub{font-size:12px;color:var(--dim);max-width:460px}
+
+  .settings{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;padding:24px;z-index:110}
+  .settings.show{display:flex}
+  .panel{width:min(560px,100%);background:var(--bg-elev);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+  .panel-head{display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700}
+  .panel-body{padding:18px;display:flex;flex-direction:column;gap:14px}
+  .hint{font-size:13px;color:var(--dim);line-height:1.55;margin:0}
+  .hint.small{font-size:12px}
+  .hint code{background:var(--bg-elev2);padding:1px 5px;border-radius:5px}
+  .fld{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--dim)}
+  .fld input,.fld textarea{padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;outline:none;font-family:inherit;resize:vertical}
+  .fld textarea{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6}
+  .fld input:focus,.fld textarea:focus{border-color:var(--accent)}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:14px;font-weight:600;cursor:pointer}
+  .rowflex{display:flex;align-items:center;gap:12px}
+  .status-txt{font-size:12.5px;color:var(--ok)}
+  .menu-btn{display:none;background:var(--bg-elev2);border:1px solid var(--border);color:var(--text);border-radius:8px;width:36px;height:36px;cursor:pointer}
+  @media(max-width:760px){
+    aside{position:absolute;z-index:50;height:calc(100% - 58px);transform:translateX(-100%);transition:transform .2s}
+    aside.open{transform:none}
+    .menu-btn{display:inline-flex;align-items:center;justify-content:center}
+    .seg button{padding:0 9px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <button class="menu-btn" id="menuBtn">☰</button>
+  <div class="logo">IPTV<span class="dot">·</span>Player</div>
+  <div class="search">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    <input id="search" type="search" placeholder="Search 16,000+ channels…" autocomplete="off" />
+  </div>
+  <div class="count" id="count"></div>
+  <div class="seg" id="seg" title="Show channels by whether they play from your location / proxies">
+    <button data-m="all">All</button>
+    <button data-m="first">Working first</button>
+    <button data-m="only" class="on">Playable only</button>
+  </div>
+  <button class="gear" id="gearBtn" title="Proxy settings">⚙</button>
+</header>
+
+<div class="body">
+  <aside id="sidebar">
+    <div class="side-title">Countries</div>
+    <div id="countries"></div>
+    <div class="side-title">Categories</div>
+    <div id="categories"></div>
+  </aside>
+  <main>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none"></div>
+  </main>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="player">
+    <div class="player-head">
+      <div style="min-width:0">
+        <div class="title" id="pTitle">—</div>
+        <div class="sub" id="pSub"></div>
+      </div>
+      <div class="pnav">
+        <button class="pbtn" id="prevBtn" title="Previous channel (←)">‹</button>
+        <button class="pbtn" id="nextBtn" title="Next channel (→)">›</button>
+        <button class="pbtn" id="fsBtn" title="Fullscreen (F)">⛶</button>
+        <button class="close" id="closeBtn" title="Close (Esc)">✕</button>
+      </div>
+    </div>
+    <div class="video-wrap">
+      <video id="video" controls playsinline autoplay></video>
+      <div class="status" id="pstatus"><div class="spinner"></div><div class="msg">Loading…</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="settings" id="settings">
+  <div class="panel">
+    <div class="panel-head">Region proxies — for geo-locked channels <button class="close" id="settingsClose">✕</button></div>
+    <div class="panel-body">
+      <p class="hint">Geo-locked channels check your IP's country. Assign a proxy <b>located in that country</b> and its channels auto-route through it. One line per country — <code>Country = proxy URL</code> — using the sidebar country name.</p>
+      <label class="fld">Per-country proxies
+        <textarea id="proxyProfiles" rows="5" spellcheck="false" placeholder="United States = socks5h://us-host:1080
+United Kingdom = http://uk-host:8080
+Japan = socks5h://jp-host:1080"></textarea>
+      </label>
+      <label class="fld">Default proxy — for every other channel (optional)
+        <input id="proxyDefault" type="text" spellcheck="false" placeholder="leave empty to connect directly" />
+      </label>
+      <div class="rowflex"><button id="proxySave" class="btn">Save</button><span id="proxyStatus" class="status-txt"></span></div>
+      <p class="hint small">SOCKS needs PySocks on the server (<code>pip3 install PySocks</code>). A proxy must be in the channel's own country to unlock it.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const el = (id) => document.getElementById(id);
+const RENDER_CAP = 600, PROBE_CAP = 500;
+let channels = [];
+let activeCountry = 'All', activeCategory = 'All', query = '';
+let mode = 'only';
+let hls = null;
+let currentChannel = null;
+
+const proxied = (c) => {
+  let s = '/proxy?url=' + encodeURIComponent(c.url);
+  if (c.country) s += '&cc=' + encodeURIComponent(c.country);
+  if (c.ua) s += '&ua=' + encodeURIComponent(c.ua);
+  if (c.rf) s += '&rf=' + encodeURIComponent(c.rf);
+  return s;
+};
+
+// ---- Availability probing ----
+const probeCache = new Map();     // url -> true/false
+let probing = false, probeStatusText = '';
+
+function currentList() {
+  const q = query.toLowerCase();
+  return channels.filter(c =>
+    (activeCountry === 'All' || c.country === activeCountry) &&
+    (activeCategory === 'All' || (c.cats && c.cats.includes(activeCategory))) &&
+    (!q || c.name.toLowerCase().includes(q)));
+}
+
+async function runProbe() {
+  if (mode === 'all' || probing) return;
+  probing = true;
+  const targets = currentList().slice(0, PROBE_CAP).filter(c => !probeCache.has(c.url));
+  const CHUNK = 40;
+  for (let i = 0; i < targets.length; i += CHUNK) {
+    if (mode === 'all') break;
+    const batch = targets.slice(i, i + CHUNK);
+    probeStatusText = `checking ${Math.min(i + CHUNK, targets.length)}/${targets.length}…`;
+    renderGrid();
+    try {
+      const res = await fetch('/check', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ items: batch.map(c => ({ url:c.url, cc:c.country, ua:c.ua, rf:c.rf })) }) });
+      const data = await res.json();
+      (data.results || []).forEach((r, idx) => probeCache.set(batch[idx].url, !!r.ok));
+    } catch (e) { batch.forEach(c => probeCache.set(c.url, true)); }
+    renderGrid();
+  }
+  probeStatusText = ''; probing = false; renderGrid();
+}
+
+// ---- Render ----
+function renderSidebar() {
+  const cc = {}, flags = {}, cats = {};
+  for (const c of channels) {
+    cc[c.country] = (cc[c.country] || 0) + 1; flags[c.country] = c.flag;
+    (c.cats || []).forEach(k => cats[k] = (cats[k] || 0) + 1);
+  }
+  const countryList = Object.keys(cc).sort((a, b) => cc[b] - cc[a]);
+  const catList = Object.keys(cats).sort((a, b) => cats[b] - cats[a]);
+  const item = (lbl, n, key, kind, active) =>
+    `<div class="row-item ${active ? 'active' : ''}" data-k="${kind}" data-v="${encodeURIComponent(key)}">
+       <span class="lbl">${lbl}</span><span class="n">${n}</span></div>`;
+  el('countries').innerHTML =
+    item('🌐 All countries', channels.length, 'All', 'country', activeCountry === 'All') +
+    countryList.map(g => item(`${flags[g] || ''} ${g}`, cc[g], g, 'country', activeCountry === g)).join('');
+  el('categories').innerHTML =
+    item('All categories', channels.length, 'All', 'cat', activeCategory === 'All') +
+    catList.map(g => item(g.charAt(0).toUpperCase() + g.slice(1), cats[g], g, 'cat', activeCategory === g)).join('');
+}
+
+el('sidebar').addEventListener('click', e => {
+  const row = e.target.closest('.row-item'); if (!row) return;
+  const v = decodeURIComponent(row.dataset.v);
+  if (row.dataset.k === 'country') activeCountry = v; else activeCategory = v;
+  renderSidebar(); renderGrid(); runProbe(); el('sidebar').classList.remove('open');
+});
+
+function orderedList() {
+  const full = currentList();
+  const off = (c) => probeCache.get(c.url) === false;
+  const okk = (c) => probeCache.get(c.url) === true;
+  if (mode === 'only') return full.filter(okk);
+  if (mode === 'first') return full.slice().sort((a, b) => (off(a) - off(b)));
+  return full;
+}
+function renderGrid() {
+  const full = currentList();
+  const off = (c) => probeCache.get(c.url) === false;
+  const list = orderedList();
+  const shown = list.slice(0, RENDER_CAP);
+  el('empty').style.display = shown.length ? 'none' : 'block';
+  if (!shown.length) {
+    el('empty').innerHTML = (mode === 'only' && probing)
+      ? 'Finding playable channels…' : (mode === 'only')
+      ? 'No channels here play from your current location.<br>Try “Working first”, another country, or set a region proxy in ⚙.'
+      : 'No channels match.';
+  }
+  let cnt = `${list.length.toLocaleString()} channel${list.length !== 1 ? 's' : ''}`;
+  if (mode !== 'only') { const h = full.length - list.length; }
+  if (list.length > RENDER_CAP) cnt += ` · showing ${RENDER_CAP}`;
+  if (probeStatusText) cnt += ` · ${probeStatusText}`;
+  el('count').textContent = cnt;
+
+  el('grid').innerHTML = shown.map(c => {
+    const initials = c.name.replace(/[^A-Za-z0-9 ]/g, '').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase() || 'TV';
+    const img = c.logo
+      ? `<img src="${c.logo}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><span class="ph" style="display:none">${initials}</span>`
+      : `<span class="ph">${initials}</span>`;
+    const isOff = mode === 'first' && off(c);
+    const tags = [];
+    if (c.flag && activeCountry === 'All') tags.push(`<span class="tag">${c.flag}</span>`);
+    if (c.quality) tags.push(`<span class="tag">${c.quality}</span>`);
+    return `<div class="card${isOff ? ' offline' : ''}" data-i="${c.i}">
+      <div class="meta">${tags.join('')}</div>
+      ${isOff ? '<span class="badge">offline</span>' : ''}
+      <div class="logo-box">${img}</div>
+      <div class="name">${c.name}</div>
+    </div>`;
+  }).join('');
+}
+
+el('grid').addEventListener('click', e => {
+  const card = e.target.closest('.card'); if (!card) return;
+  play(channels[+card.dataset.i], card);
+});
+
+// ---- Playback ----
+function setStatus(html, spin) {
+  const s = el('pstatus');
+  if (html === null) { s.classList.add('hidden'); return; }
+  s.classList.remove('hidden');
+  s.innerHTML = (spin ? '<div class="spinner"></div>' : '') + html;
+}
+function play(c, card) {
+  currentChannel = c;
+  document.querySelectorAll('.card.playing').forEach(x => x.classList.remove('playing'));
+  const cardEl = card || el('grid').querySelector('.card[data-i="' + c.i + '"]');
+  if (cardEl) cardEl.classList.add('playing');
+  el('pTitle').textContent = c.name;
+  el('pSub').textContent = [c.flag, c.country, c.quality].filter(Boolean).join(' · ');
+  el('overlay').classList.add('show');
+  const video = el('video');
+  setStatus('<div class="msg">Loading…</div>', true);
+  if (hls) { hls.destroy(); hls = null; }
+  video.pause(); video.removeAttribute('src'); video.load();
+  const src = proxied(c);
+  const fail = (d) => setStatus(`<div class="msg">⚠️ This stream couldn't be played.</div>
+    <div class="sub">Likely geo-blocked or offline. Try another, or add a region proxy in ⚙.<br><code style="font-size:11px;color:var(--dim)">${d || ''}</code></div>`, false);
+  if (window.Hls && Hls.isSupported()) {
+    hls = new Hls({ maxBufferLength: 20, manifestLoadingTimeOut: 15000, levelLoadingTimeOut: 15000 });
+    hls.loadSource(src); hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { setStatus(null); video.play().catch(()=>{}); });
+    hls.on(Hls.Events.ERROR, (ev, d) => { if (d.fatal) fail(d.details || d.type); });
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = src;
+    video.addEventListener('loadedmetadata', () => setStatus(null), { once:true });
+    video.addEventListener('error', () => fail('native error'), { once:true });
+    video.play().catch(()=>{});
+  } else fail('HLS unsupported');
+}
+function closePlayer() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+  el('overlay').classList.remove('show');
+  if (hls) { hls.destroy(); hls = null; }
+  const v = el('video'); v.pause(); v.removeAttribute('src'); v.load();
+  document.querySelectorAll('.card.playing').forEach(x => x.classList.remove('playing'));
+}
+// ---- Zap between channels & fullscreen ----
+function zap(dir) {
+  if (!currentChannel) return;
+  const list = orderedList();
+  let i = list.findIndex(x => x.i === currentChannel.i);
+  if (i < 0) i = 0;
+  play(list[(i + dir + list.length) % list.length]);
+}
+function toggleFs() {
+  const p = document.querySelector('.player');
+  if (document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+  else if (p.requestFullscreen) p.requestFullscreen().catch(()=>{});
+}
+el('prevBtn').onclick = () => zap(-1);
+el('nextBtn').onclick = () => zap(1);
+el('fsBtn').onclick = toggleFs;
+
+// ---- Mode + search ----
+function setMode(m) {
+  mode = m;
+  el('seg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  localStorage.setItem('iptv_mode', m);
+  renderGrid(); runProbe();
+}
+el('seg').querySelectorAll('button').forEach(b => b.onclick = () => setMode(b.dataset.m));
+let sd;
+el('search').addEventListener('input', e => {
+  query = e.target.value; renderGrid();
+  clearTimeout(sd); sd = setTimeout(runProbe, 350);
+});
+el('closeBtn').onclick = closePlayer;
+el('overlay').onclick = e => { if (e.target === el('overlay')) closePlayer(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closePlayer(); closeSettings(); return; }
+  if (!el('overlay').classList.contains('show')) return;
+  if (e.key === 'ArrowRight') { e.preventDefault(); zap(1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); zap(-1); }
+  else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFs(); }
+});
+el('menuBtn').onclick = () => el('sidebar').classList.toggle('open');
+
+// ---- Settings (per-country upstream proxies) ----
+const LS = 'iptv_proxies';
+const upstream = { profiles: {}, default: '' };
+const activeCount = () => Object.keys(upstream.profiles).length + (upstream.default ? 1 : 0);
+const p2t = p => Object.entries(p).map(([k, v]) => `${k} = ${v}`).join('\n');
+const t2p = t => { const o = {}; (t||'').split('\n').forEach(l => { const i = l.indexOf('='); if (i>0){const k=l.slice(0,i).trim(),v=l.slice(i+1).trim(); if(k&&v)o[k]=v;} }); return o; };
+async function pushConfig() { try { await fetch('/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(upstream)}); } catch(e){} }
+function reflectGear() { el('gearBtn').classList.toggle('active', activeCount() > 0); }
+function loadSettings() {
+  try { const s = JSON.parse(localStorage.getItem(LS) || '{}'); upstream.profiles = s.profiles||{}; upstream.default = s.default||''; } catch(e){}
+  el('proxyProfiles').value = p2t(upstream.profiles) || 'United States = \nUnited Kingdom = \nJapan = ';
+  el('proxyDefault').value = upstream.default;
+  reflectGear(); return pushConfig();
+}
+function openSettings(){ el('settings').classList.add('show'); el('proxyStatus').textContent=''; }
+function closeSettings(){ el('settings').classList.remove('show'); }
+el('gearBtn').onclick = openSettings;
+el('settingsClose').onclick = closeSettings;
+el('settings').onclick = e => { if (e.target === el('settings')) closeSettings(); };
+el('proxySave').onclick = async () => {
+  upstream.profiles = t2p(el('proxyProfiles').value);
+  upstream.default = el('proxyDefault').value.trim();
+  localStorage.setItem(LS, JSON.stringify(upstream));
+  await pushConfig(); reflectGear();
+  probeCache.clear(); if (mode !== 'all') runProbe();
+  const n = Object.keys(upstream.profiles).length;
+  el('proxyStatus').textContent = activeCount() === 0 ? '✓ Saved — direct' : `✓ Saved — ${n} region${n!==1?'s':''} routed`;
+  setTimeout(closeSettings, 1100);
+};
+
+// ---- Boot ----
+(async function init() {
+  await loadSettings();
+  mode = localStorage.getItem('iptv_mode') || 'only';
+  el('seg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+  try {
+    const res = await fetch('data.json'); if (!res.ok) throw new Error('HTTP ' + res.status);
+    const raw = await res.json();
+    channels = raw.map((r, i) => ({ i, name:r.n, url:r.u, logo:r.l||'', country:r.c, flag:r.g||'',
+      quality:r.q||'', cats:r.cat||[], ua:r.ua||'', rf:r.rf||'' }));
+    renderSidebar(); renderGrid(); runProbe();
+  } catch (err) {
+    el('empty').style.display = 'block';
+    el('empty').innerHTML = `Couldn't load data.json (${err.message}).<br>Run <code>python3 webapp/build_data.py</code> first.`;
+  }
+})();
+</script>
+</body>
+</html>
